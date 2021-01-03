@@ -63,6 +63,8 @@ int main(int argc, char *argv[]) {
             printf("accept %d\n", cfd);
         }
         //创建协程
+        //这里只有一个接口，即便是其他的协程库，暴露出来的接口其实也是很少的。
+        // 可以看出，协程用起来是很方便的
         task_create(task_callback, &cfd);
     }
     return 0;

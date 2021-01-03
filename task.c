@@ -9,14 +9,15 @@
 
 #include "timer.h"
 
+// 这个结构体应该是协程的调度器
 static struct {
-    struct task *current;
-    rbtree pid_set;
-    queue task_end;
-    queue task_ready;
+    struct task *current;  //当前运行的协程
+    rbtree pid_set;        // 等待集合使用红黑树
+    queue task_end;        //睡眠集合，使用队列
+    queue task_ready;      //就绪集合，使用队列
     struct timer_struct time_run;
-    pthread_mutex_t mutex;
-    pthread_t pid;
+    pthread_mutex_t mutex;  //当前线程的互斥锁
+    pthread_t pid;          //当前线程的id
 } task_context;
 
 static int find_cmp(void *arg, int size) {
@@ -161,7 +162,7 @@ void task_exit() {
 
     pthread_mutex_lock(&task_context.mutex);
     queue_push(&task_context.task_end, &current->end_node);
-    pthread_mutex_unlock(&task_context.mutex);
+    pthread_mutex_unlock(&task_context.mutex);  // TODO1， 上下文锁在这里释放了
 
     rbtree_delete(&task_context.pid_set, &current->pid_node);
     task_context.current = NULL;
@@ -172,8 +173,10 @@ void task_exit() {
 }
 
 int task_init() {
+    // TODO1 ， 猜测这个锁会伴随这线程整个生命周期
     pthread_mutex_init(&task_context.mutex, NULL);
 
+    //<< 这里创建，并初始化一个task
     struct task *p = (struct task *)malloc(sizeof(struct task));
     if (p == NULL) {
         return -1;
@@ -181,7 +184,7 @@ int task_init() {
 
     p->pid = 0;
     p->state = TASK_RUN;
-
+    //>> 之后加入到task_context中
     task_context.current = p;
 
     rbtree_init(&task_context.pid_set, pid_cmp);
@@ -203,11 +206,15 @@ int task_init() {
 }
 
 int task_create(void (*start_routine)(void *), void *arg) {
+    // 这里最主要的两个结构体
+    // 一个是task
+    // 另一个是task_context
     if (start_routine == NULL) {
         return -1;
     }
 
     if (task_context.pid_set.cmp != pid_cmp) {
+        // 如果是第一次，那么先初始化下协程
         task_init();
     }
 
