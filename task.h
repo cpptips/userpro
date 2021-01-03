@@ -35,10 +35,10 @@ struct task_ctx {
 struct task {
     int state;  //运行状态
     int pid;
-    void *start_addr;
-    rbtree_node pid_node;
-    queue_node ready_node;
-    queue_node end_node;
+    void *start_addr;               //栈空间地址
+    rbtree_node pid_node;           //等待队列
+    queue_node ready_node;          //就绪队列
+    queue_node end_node;            //死亡队列
     struct task_ctx ctx;            //上下文
     void (*start_routine)(void *);  //回调函数
     void *arg;                      //回调参数

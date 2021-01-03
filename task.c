@@ -12,12 +12,13 @@
 // 这个结构体应该是协程的调度器
 static struct {
     struct task *current;  //当前运行的协程
-    rbtree pid_set;        // 等待集合使用红黑树
-    queue task_end;        //睡眠集合，使用队列
-    queue task_ready;      //就绪集合，使用队列
-    struct timer_struct time_run;
-    pthread_mutex_t mutex;  //当前线程的互斥锁
-    pthread_t pid;          //当前线程的id
+    // 执行集合{就绪、睡眠、等待}
+    rbtree pid_set;                // 使用红黑树
+    queue task_end;                // 死亡集合，使用队列
+    queue task_ready;              // 就绪集合，使用队列
+    struct timer_struct time_run;  //定时器
+    pthread_mutex_t mutex;         //当前线程的互斥锁
+    pthread_t pid;                 //当前线程的id
 } task_context;
 
 static int find_cmp(void *arg, int size) {
@@ -78,12 +79,15 @@ static void Switch(struct task_ctx *src, struct task_ctx *obj) {
         :);
 }
 
+// 取消信号
 static void cancel_signel() {
     sigset_t set;
     sigemptyset(&set);
     pthread_sigmask(SIG_SETMASK, &set, NULL);
 }
 
+//屏蔽信号
+//猜测是不关心SIGUSR1信号
 static void shield_signel(int sig) {
     sigset_t set;
     sigemptyset(&set);
@@ -94,8 +98,9 @@ static void shield_signel(int sig) {
 static void send_message(void *arg) {
     kill(getpid(), SIGUSR1);
 
-    pthread_mutex_lock(&task_context.mutex);
+    pthread_mutex_lock(&task_context.mutex);  //调度线程上锁
     //回收协程空间
+    // TODO2 如果有死亡的就释放掉
     while (!queue_isempty(&task_context.task_end)) {
         struct queue_node *p;
         queue_pop(&task_context.task_end, &p);
@@ -105,7 +110,7 @@ static void send_message(void *arg) {
         free(pt);
     }
 
-    pthread_mutex_unlock(&task_context.mutex);
+    pthread_mutex_unlock(&task_context.mutex);  //调度线程解锁
 }
 
 static void *thread_callback(void *arg) {
@@ -119,10 +124,12 @@ static void sigusr_schedul(int signum) {
         return;
     }
 
+    // 添加当前的就绪节点到就绪队列
     if (task_context.current != NULL) {
         queue_push(&task_context.task_ready, &task_context.current->ready_node);
     }
 
+    //从就绪队列中取节点
     struct queue_node *rp = NULL;
     queue_pop(&task_context.task_ready, &rp);
     struct task *p = GET_STRUCT_START_ADDR(struct task, ready_node, rp);
@@ -136,7 +143,7 @@ static void sigusr_schedul(int signum) {
     task_context.current = p;
 
     cancel_signel();
-
+    //进行协程切换
     if (current == NULL) {
         struct task tem;
         task_switch(&tem, p);
@@ -161,9 +168,11 @@ void task_exit() {
     current->state = TASK_END;
 
     pthread_mutex_lock(&task_context.mutex);
+    //协程退出，就放进死亡节点中
     queue_push(&task_context.task_end, &current->end_node);
     pthread_mutex_unlock(&task_context.mutex);  // TODO1， 上下文锁在这里释放了
 
+    // 删除红黑树节点
     rbtree_delete(&task_context.pid_set, &current->pid_node);
     task_context.current = NULL;
     cancel_signel();
@@ -187,13 +196,15 @@ int task_init() {
     //>> 之后加入到task_context中
     task_context.current = p;
 
-    rbtree_init(&task_context.pid_set, pid_cmp);
-    queue_init(&task_context.task_ready);
-    queue_init(&task_context.task_end);
+    //三大集合初始化
+    rbtree_init(&task_context.pid_set, pid_cmp);  //红黑树
+    queue_init(&task_context.task_ready);         //就绪队列
+    queue_init(&task_context.task_end);           //死亡队列
 
+    // 先插入到红黑树集合中
     rbtree_insert(&task_context.pid_set, &p->pid_node);
 
-    //设置信号
+    //设置信号，当收到SIGUSR1信号时，就会运行sigusr_schedul
     signal(SIGUSR1, sigusr_schedul);
 
     //启动定时器
@@ -244,6 +255,7 @@ int task_create(void (*start_routine)(void *), void *arg) {
     shield_signel(SIGUSR1);
 
     rbtree_insert(&task_context.pid_set, &p->pid_node);
+    //加入到就绪队列中
     queue_push(&task_context.task_ready, &p->ready_node);
 
     cancel_signel();
@@ -297,6 +309,7 @@ int task_uninit() {
         }
     }
 
+    //释放死亡节点
     while (!queue_isempty(&task_context.task_end)) {
         struct queue_node *p;
         queue_pop(&task_context.task_end, &p);

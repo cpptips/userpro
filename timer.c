@@ -11,14 +11,15 @@ int init_timer(struct timer_struct *p, int cycle_time) {
         return -1;
     }
 
-    p->epfd = epoll_create(1);
+    p->epfd = epoll_create(1);  //这里里面维护了一个epfd
     p->cycle_time = cycle_time;
-    p->isstop = 0;
-    queue_init(&p->timer_queue);
+    p->isstop = 0;                //定时器是否停止
+    queue_init(&p->timer_queue);  //初始化队列
 
     return 0;
 }
 
+//添加到定时器当中
 int add_timer(struct timer_struct *p, int cycle, void (*call_back)(void *),
               void *arg) {
     if (p == NULL) {
@@ -40,6 +41,7 @@ int add_timer(struct timer_struct *p, int cycle, void (*call_back)(void *),
     return 0;
 }
 
+// 运行定时器
 int run_timer(struct timer_struct *p) {
     if (p == NULL) {
         return -1;
@@ -50,7 +52,7 @@ int run_timer(struct timer_struct *p) {
 
     struct epoll_event evs[1];
     while (!p->isstop) {
-        epoll_wait(p->epfd, evs, 1, p->cycle_time);
+        epoll_wait(p->epfd, evs, 1, p->cycle_time);  // cycle_time是超时时间
 
         current_node = p->timer_queue.head;
         current = GET_STRUCT_START_ADDR(struct timer_data, qnode, current_node);
@@ -62,9 +64,11 @@ int run_timer(struct timer_struct *p) {
             current->time -= p->cycle_time;
 
             if (current->time <= 0) {
+                // 时间到了，那么执行任务
                 current->call_back(current->arg);
                 current->time = current->cycle;
             }
+            //接着这个桶中其他节点有没有到时了
             current_node = current->qnode.next;
             if (current_node == NULL) {
                 break;
