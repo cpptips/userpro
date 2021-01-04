@@ -36,7 +36,7 @@ int add_timer(struct timer_struct *p, int cycle, void (*call_back)(void *),
     data->cycle = cycle;
     data->time = cycle;
 
-    queue_push(&p->timer_queue, &data->qnode);
+    queue_push(&p->timer_queue, &data->qnode);  //添加到定时器队列中
 
     return 0;
 }
